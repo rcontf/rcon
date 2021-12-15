@@ -58,7 +58,7 @@ export class Rcon {
         port: this.port,
       });
 
-      await this.read();
+      void this.read();
 
       await this.sendData(
         new Uint8Array([0, 0, 0, 0]),
