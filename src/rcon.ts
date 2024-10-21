@@ -1,6 +1,5 @@
 import protocol from "./protocol.ts";
-import { Buffer } from "node:buffer";
-import { readAll } from "@std/io";
+import { readAll, writeAll } from "@std/io";
 import { encode, decode } from "./packet.ts";
 import {
   AlreadyAuthenicatedException,
@@ -125,63 +124,71 @@ export default class Rcon {
    * @param id Packet ID
    * @param body Packet payload
    */
-  #write(type: number, id: number, body: string): Promise<string | boolean> {
-    // deno-lint-ignore no-async-promise-executor
-    return new Promise(async (resolve, reject) => {
-      let response = "";
+  async #write(
+    type: number,
+    id: number,
+    body: string
+  ): Promise<string | boolean> {
+    const { resolve, reject, promise } = Promise.withResolvers<
+      string | boolean
+    >();
+    const stream = new WritableStream();
 
-      const encodedPacket = encode(type, id, body);
+    let response = "";
 
-      if (this.maxPacketSize > 0 && encodedPacket.length > this.maxPacketSize) {
-        reject(new PacketSizeTooBigException());
-        return;
+    const encodedPacket = encode(type, id, body);
+
+    if (this.maxPacketSize > 0 && encodedPacket.length > this.maxPacketSize) {
+      reject(new PacketSizeTooBigException());
+    }
+
+    writeAll(stream, encodedPacket);
+    await this.connection.write(encodedPacket);
+
+    const packet = await readAll(this.connection);
+
+    const decodedPacket = decode(Buffer.from(packet));
+
+    // Server will respond twice (0x00 and 0x02) if we send an auth packet (0x03)
+    // but we need 0x02 to confirm
+    if (
+      type === protocol.SERVERDATA_AUTH &&
+      decodedPacket.type !== protocol.SERVERDATA_AUTH_RESPONSE
+    ) {
+      reject();
+    } else if (
+      type === protocol.SERVERDATA_AUTH &&
+      decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
+    ) {
+      if (decodedPacket.id === protocol.ID_AUTH) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    } else if (
+      id === decodedPacket.id ||
+      decodedPacket.id === protocol.ID_TERM
+    ) {
+      if (decodedPacket.id != protocol.ID_TERM) {
+        response = response.concat(decodedPacket.body.replace(/\n$/, "\n")); // remove last line break
       }
 
-      await this.connection.write(encodedPacket);
+      // Hack to cope with multipacket responses
+      // see https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
+      if (decodedPacket.size > 3700) {
+        const encodedTerminationPacket = encode(
+          protocol.SERVERDATA_RESPONSE_VALUE,
+          protocol.ID_TERM,
+          ""
+        );
 
-      const packet = await readAll(this.connection);
-
-      const decodedPacket = decode(Buffer.from(packet));
-
-      // Server will respond twice (0x00 and 0x02) if we send an auth packet (0x03)
-      // but we need 0x02 to confirm
-      if (
-        type === protocol.SERVERDATA_AUTH &&
-        decodedPacket.type !== protocol.SERVERDATA_AUTH_RESPONSE
-      ) {
-        return;
-      } else if (
-        type === protocol.SERVERDATA_AUTH &&
-        decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
-      ) {
-        if (decodedPacket.id === protocol.ID_AUTH) {
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      } else if (
-        id === decodedPacket.id ||
-        decodedPacket.id === protocol.ID_TERM
-      ) {
-        if (decodedPacket.id != protocol.ID_TERM) {
-          response = response.concat(decodedPacket.body.replace(/\n$/, "\n")); // remove last line break
-        }
-
-        // Hack to cope with multipacket responses
-        // see https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
-        if (decodedPacket.size > 3700) {
-          const encodedTerminationPacket = encode(
-            protocol.SERVERDATA_RESPONSE_VALUE,
-            protocol.ID_TERM,
-            ""
-          );
-          
-          this.connection.write(encodedTerminationPacket);
-        } else if (decodedPacket.size <= 3700) {
-          // no need to check for ID_TERM here, since this packet will always be < 3700
-          resolve(response);
-        }
+        this.connection.write(encodedTerminationPacket);
+      } else if (decodedPacket.size <= 3700) {
+        // no need to check for ID_TERM here, since this packet will always be < 3700
+        resolve(response);
       }
-    });
+    }
+
+    return promise;
   }
 }
