@@ -1,4 +1,4 @@
-import Buffer from "https://deno.land/std@0.77.0/node/buffer.ts";
+import { Buffer } from "node:buffer";
 
 /**
  *  Encode data to packet buffer

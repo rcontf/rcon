@@ -27,7 +27,10 @@ const protocol = {
   SERVERDATA_RESPONSE_VALUE: 0x00,
 
   ID_AUTH: 0x999,
+
   ID_REQUEST: 0x123,
+
+  ID_TERM: 0x777,
 } as const;
 
 export default protocol;

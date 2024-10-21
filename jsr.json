@@ -1,0 +1,5 @@
+{
+  "name": "@c43721/rcon",
+  "version": "0.0.1-alpha1",
+  "exports": "./mod.ts"
+}

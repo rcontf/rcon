@@ -1,6 +1,6 @@
 import protocol from "./protocol.ts";
-import Buffer from "https://deno.land/std@0.77.0/node/buffer.ts";
-import { readAll } from "https://deno.land/std/streams/conversion.ts";
+import { Buffer } from "node:buffer";
+import { readAll } from "@std/io";
 import { encode, decode } from "./packet.ts";
 import {
   AlreadyAuthenicatedException,
@@ -44,9 +44,9 @@ export default class Rcon {
    * Authenticates the connection
    * @param password Password string
    */
-  async authenticate(password: string): Promise<boolean> {
+  public async authenticate(password: string): Promise<boolean> {
     if (!this.connected) {
-      await this.connect();
+      await this.#connect();
     }
 
     return new Promise((resolve, reject) => {
@@ -55,7 +55,7 @@ export default class Rcon {
         return;
       }
 
-      this.write(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password)
+      this.#write(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password)
         .then((data) => {
           if (data === true) {
             this.authenticated = true;
@@ -73,7 +73,7 @@ export default class Rcon {
    * Executes command on the server
    * @param command Command to execute
    */
-  execute(command: string): Promise<string | boolean> {
+  public execute(command: string): Promise<string | boolean> {
     return new Promise((resolve, reject) => {
       if (!this.connected) {
         reject(new NotAuthorizedException());
@@ -86,7 +86,7 @@ export default class Rcon {
         return;
       }
 
-      this.write(protocol.SERVERDATA_EXECCOMMAND, packetId, command)
+      this.#write(protocol.SERVERDATA_EXECCOMMAND, packetId, command)
         .then(resolve)
         .catch(reject);
     });
@@ -95,7 +95,7 @@ export default class Rcon {
   /**
    * Creates a connection to the socket
    */
-  private async connect(): Promise<void> {
+  async #connect(): Promise<void> {
     this.connection = await Deno.connect({
       hostname: this.host,
       port: this.port,
@@ -105,7 +105,7 @@ export default class Rcon {
   /**
    * Destroys the socket connection
    */
-  disconnect() {
+  public disconnect() {
     this.authenticated = false;
     this.connected = false;
     this.connection.close();
@@ -125,11 +125,7 @@ export default class Rcon {
    * @param id Packet ID
    * @param body Packet payload
    */
-  private write(
-    type: number,
-    id: number,
-    body: string
-  ): Promise<string | boolean> {
+  #write(type: number, id: number, body: string): Promise<string | boolean> {
     // deno-lint-ignore no-async-promise-executor
     return new Promise(async (resolve, reject) => {
       let response = "";
@@ -163,13 +159,26 @@ export default class Rcon {
         } else {
           resolve(false);
         }
-      } else if (id === decodedPacket.id) {
-        // remove last line break
-        response = response.concat(decodedPacket.body.replace(/\n$/, "\n"));
+      } else if (
+        id === decodedPacket.id ||
+        decodedPacket.id === protocol.ID_TERM
+      ) {
+        if (decodedPacket.id != protocol.ID_TERM) {
+          response = response.concat(decodedPacket.body.replace(/\n$/, "\n")); // remove last line break
+        }
 
-        // Check the response if it's defined rather than if it contains 'command ${body}'
-        // Reason for this is because we no longer need to check if it starts with 'command', testing shows it never will
-        if (response) {
+        // Hack to cope with multipacket responses
+        // see https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
+        if (decodedPacket.size > 3700) {
+          const encodedTerminationPacket = encode(
+            protocol.SERVERDATA_RESPONSE_VALUE,
+            protocol.ID_TERM,
+            ""
+          );
+          
+          this.connection.write(encodedTerminationPacket);
+        } else if (decodedPacket.size <= 3700) {
+          // no need to check for ID_TERM here, since this packet will always be < 3700
           resolve(response);
         }
       }

@@ -15,7 +15,7 @@ export class UnableToAuthenicateException extends Error {
 export class NotAuthorizedException extends Error {
   constructor() {
     super();
-    this.message = "Not authorized. Please authenticate first.";
+    this.message = "Not authenticated";
   }
 }
 
