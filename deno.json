@@ -1,5 +1,8 @@
 {
+  "name": "@c43721/rcon",
   "imports": {
     "@std/io": "jsr:@std/io@^0.225.0"
-  }
+  },
+  "version": "0.0.1-alpha1",
+  "exports": "./mod.ts"
 }
