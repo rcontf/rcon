@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-
 /**
  *  Encode data to packet buffer
  * @param type Packet Type
@@ -8,7 +6,7 @@ import { Buffer } from "node:buffer";
  * @param encoding Body encoding
  * @returns Encoded packet buffer
  */
-export const encode = (type: number, id: number, body: string): Buffer => {
+export const encode = (type: number, id: number, body: string): WritableStream => {
   const size = Buffer.byteLength(body) + 14; // body size + 10 + 4 (Null)
   const buffer = Buffer.alloc(size);
 
