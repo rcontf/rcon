@@ -137,7 +137,7 @@ export default class Rcon {
         return;
       }
 
-      await this.connection.write(encodedPacket);
+      await this.connection.write(new Uint8Array(encodedPacket));
 
       const packet = await readAll(this.connection);
 
@@ -175,8 +175,8 @@ export default class Rcon {
             protocol.ID_TERM,
             ""
           );
-          
-          this.connection.write(encodedTerminationPacket);
+
+          this.connection.write(new Uint8Array(encodedTerminationPacket));
         } else if (decodedPacket.size <= 3700) {
           // no need to check for ID_TERM here, since this packet will always be < 3700
           resolve(response);

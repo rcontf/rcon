@@ -4,7 +4,6 @@
     "specifiers": {
       "jsr:@std/bytes@^1.0.2": "jsr:@std/bytes@1.0.2",
       "jsr:@std/io@^0.225.0": "jsr:@std/io@0.225.0",
-      "jsr:@std/streams@^1.0.7": "jsr:@std/streams@1.0.7",
       "npm:@types/node": "npm:@types/node@18.16.19"
     },
     "jsr": {
@@ -13,12 +12,6 @@
       },
       "@std/io@0.225.0": {
         "integrity": "c1db7c5e5a231629b32d64b9a53139445b2ca640d828c26bf23e1c55f8c079b3",
-        "dependencies": [
-          "jsr:@std/bytes@^1.0.2"
-        ]
-      },
-      "@std/streams@1.0.7": {
-        "integrity": "1a93917ca0c58c01b2bfb93647189229b1702677f169b6fb61ad6241cd2e499b",
         "dependencies": [
           "jsr:@std/bytes@^1.0.2"
         ]
@@ -39,8 +32,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/io@^0.225.0",
-      "jsr:@std/streams@^1.0.7"
+      "jsr:@std/io@^0.225.0"
     ]
   }
 }
