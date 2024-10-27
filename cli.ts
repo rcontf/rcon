@@ -11,10 +11,9 @@ if (!args.password || !args.ip || !args.command) {
 } else {
   const port = parseInt(args.port ?? "27015", 10);
 
-  const rcon = new Rcon({
-    host: args.ip!,
+  using rcon = new Rcon({
+    host: args.ip,
     port,
-    timeout: 5000,
   });
 
   const didAuthenticate = await rcon.authenticate(args.password!);

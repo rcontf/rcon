@@ -3,21 +3,33 @@ import { iterateReader } from "@std/io";
 import { concat } from "@std/bytes";
 import { encode, decode } from "./packet.ts";
 import {
-  AlreadyAuthenicatedException,
   NotAuthorizedException,
+  NotConnectedException,
   PacketSizeTooBigException,
   UnableToAuthenicateException,
+  UnableToParseResponseException,
 } from "./errors.ts";
 import type { RconOptions } from "./types.ts";
 
 /**
  * Class that can interact with the [Value Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
+ *
+ * @example Log to console the response
+ * ```ts
+ * using rcon = new Rcon({ host: "game.example.com", port: 27015 });
+ *
+ * const didAuthenticate = await rcon.authenticate("myrconpassword");
+ *
+ * console.log(didAuthenticate ? "Authenticated to the server" : "Could not authenticate");
+ *
+ * const result = await rcon.execute("status");
+ *
+ * console.log(result);
+ * ```
  */
 export default class Rcon {
-  host: string;
-  port: number;
-  timeout: number;
-
+  #host: string;
+  #port: number;
   #connection?: Deno.Conn;
   #connected = false;
   #authenticated = false;
@@ -25,35 +37,40 @@ export default class Rcon {
 
   /**
    * Creates a new RCON connection
-   * @param {RconOptions} options Connection options
+   * @param {RconOptions} options The connection options
    */
   constructor(options: RconOptions) {
-    const { host, port = 27015, timeout = 2500 } = options;
+    const { host, port = 27015 } = options;
 
-    this.host = host;
-    this.port = port;
-    this.timeout = timeout;
+    this.#host = host;
+    this.#port = port;
   }
 
+  /**
+   * Gets whether the socket is connected
+   */
   get isConnected() {
     return this.#connected;
   }
 
+  /**
+   * Gets whether the connection is authenticated
+   */
   get isAuthenticated() {
     return this.#authenticated;
   }
 
+  [Symbol.dispose]() {
+    this.disconnect();
+  }
+
   /**
    * Authenticates the connection
-   * @param password Password string
+   * @param password The RCON password
    */
   public async authenticate(password: string): Promise<boolean> {
     if (!this.#connected) {
       await this.#connect();
-    }
-
-    if (this.#authenticated) {
-      throw new AlreadyAuthenicatedException();
     }
 
     const response = await this.#send(
@@ -62,7 +79,7 @@ export default class Rcon {
       password
     );
 
-    if (response === true) {
+    if (response === "true") {
       this.#authenticated = true;
       return true;
     } else {
@@ -75,34 +92,22 @@ export default class Rcon {
    * Executes command on the server
    * @param command Command to execute
    */
-  public async execute(command: string) {
+  public async execute(command: string): Promise<string | boolean> {
     if (!this.#connected) {
-      throw new NotAuthorizedException();
+      throw new NotConnectedException();
     }
-
-    const packetId = Math.floor(Math.random() * (256 - 1) + 1);
 
     if (!this.#authenticated) {
       throw new NotAuthorizedException();
     }
 
+    const packetId = Math.floor(Math.random() * (256 - 1) + 1);
+
     return await this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command);
   }
 
   /**
-   * Creates a connection to the socket
-   */
-  async #connect() {
-    this.#connection = await Deno.connect({
-      hostname: this.host,
-      port: this.port,
-    });
-
-    this.#connected = true;
-  }
-
-  /**
-   * Destroys the socket connection
+   * Disconnects from the server and resets the authentication status
    */
   public disconnect() {
     this.#authenticated = false;
@@ -111,12 +116,24 @@ export default class Rcon {
   }
 
   /**
+   * Connects to the SRCDS server
+   */
+  async #connect() {
+    this.#connection = await Deno.connect({
+      hostname: this.#host,
+      port: this.#port,
+    });
+
+    this.#connected = true;
+  }
+
+  /**
    * Writes to socket connection and returns the response from the RCON server
    * @param type Packet Type
    * @param id Packet ID
    * @param body Packet payload
    */
-  async #send(type: number, id: number, body: string) {
+  async #send(type: number, id: number, body: string): Promise<string> {
     const encodedPacket = encode(type, id, body);
 
     if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
@@ -131,7 +148,7 @@ export default class Rcon {
       const decodedPacket = decode(response);
 
       if (decodedPacket.size < 10) {
-        throw new Error("failed to decode packet");
+        throw new UnableToParseResponseException();
       }
 
       if (decodedPacket.id === -1) {
@@ -143,16 +160,16 @@ export default class Rcon {
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
         if (decodedPacket.id === protocol.ID_AUTH) {
-          return true;
+          return "true";
         } else {
-          return false;
+          return "false";
         }
       } else if (
         type !== protocol.SERVERDATA_AUTH &&
         (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
           decodedPacket.id === protocol.ID_TERM)
       ) {
-        // concat a multipacket response
+        // concat the response- even if it's not a multipacket response
         if (decodedPacket.id != protocol.ID_TERM) {
           potentialMultiPacketResponse = concat([
             potentialMultiPacketResponse,
