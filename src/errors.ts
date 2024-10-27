@@ -1,3 +1,6 @@
+/**
+ * The socket was already authenticated
+ */
 export class AlreadyAuthenicatedException extends Error {
   constructor() {
     super();
@@ -5,6 +8,9 @@ export class AlreadyAuthenicatedException extends Error {
   }
 }
 
+/**
+ * Unable to authenticate the socket
+ */
 export class UnableToAuthenicateException extends Error {
   constructor() {
     super();
@@ -12,13 +18,19 @@ export class UnableToAuthenicateException extends Error {
   }
 }
 
-export class NotAuthorizedException extends Error {
+/**
+ * Not authenticated to the socket and the user tried to send a command
+ */
+export class NotAuthenticatedException extends Error {
   constructor() {
     super();
     this.message = "Not authenticated";
   }
 }
 
+/**
+ * The socket was never connected or disconnected too early
+ */
 export class NotConnectedException extends Error {
   constructor() {
     super();
@@ -26,6 +38,9 @@ export class NotConnectedException extends Error {
   }
 }
 
+/**
+ * The packet was unable to be parsed into the expected value
+ */
 export class UnableToParseResponseException extends Error {
   constructor() {
     super();
@@ -33,6 +48,9 @@ export class UnableToParseResponseException extends Error {
   }
 }
 
+/**
+ * The packet being sent is too large to send to the server
+ */
 export class PacketSizeTooBigException extends Error {
   constructor() {
     super();

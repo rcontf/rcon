@@ -9,6 +9,20 @@ Checkout the [jsr page](https://jsr.io/@c43721/rcon) for more details.
 
 ### Examples
 
+A simple example that connects to a server and executes the `status` command and logs to console
+
+```ts
+using rcon = new Rcon({ host: "game.example.com", port: 27015 });
+
+const didAuthenticate = await rcon.authenticate("myrconpassword");
+
+console.log(didAuthenticate ? "Authenticated to the server" : "Could not authenticate");
+
+const result = await rcon.execute("status");
+
+console.log(result);
+```
+
 For more examples, see the [documentation on jsr](https://jsr.io/@c43721/rcon/doc).
 
 ## Contributing

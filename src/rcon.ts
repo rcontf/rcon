@@ -3,7 +3,7 @@ import { iterateReader } from "@std/io";
 import { concat } from "@std/bytes";
 import { encode, decode } from "./packet.ts";
 import {
-  NotAuthorizedException,
+  NotAuthenticatedException,
   NotConnectedException,
   PacketSizeTooBigException,
   UnableToAuthenicateException,
@@ -102,7 +102,7 @@ export default class Rcon {
     }
 
     if (!this.#authenticated) {
-      throw new NotAuthorizedException();
+      throw new NotAuthenticatedException();
     }
 
     const packetId = Math.floor(Math.random() * (256 - 1) + 1);
