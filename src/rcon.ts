@@ -1,170 +1,184 @@
 import protocol from "./protocol.ts";
-import { Buffer } from "node:buffer";
-import { readAll } from "@std/io";
+import { iterateReader } from "@std/io";
+import { concat } from "@std/bytes";
 import { encode, decode } from "./packet.ts";
 import {
-  AlreadyAuthenicatedException,
   NotAuthorizedException,
+  NotConnectedException,
   PacketSizeTooBigException,
   UnableToAuthenicateException,
+  UnableToParseResponseException,
 } from "./errors.ts";
+import type { RconOptions } from "./types.ts";
 
-export interface RconOptions {
-  host: string;
-  port?: number;
-  maxPacketSize?: number;
-  timeout?: number;
-}
-
+/**
+ * Class that can interact with the [Value Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
+ *
+ * RCON connections are made using TCP and responses are always in UTF-8
+ *
+ * @example Log to console the response
+ * ```ts
+ * using rcon = new Rcon({ host: "game.example.com", port: 27015 });
+ *
+ * const didAuthenticate = await rcon.authenticate("myrconpassword");
+ *
+ * console.log(didAuthenticate ? "Authenticated to the server" : "Could not authenticate");
+ *
+ * const result = await rcon.execute("status");
+ *
+ * console.log(result);
+ * ```
+ *
+ * Note the `using` will automatically disconnect and clean up the resources. You can call disconnect manually as well
+ */
 export default class Rcon {
-  host: string;
-  port: number;
-  maxPacketSize: number;
-  timeout: number;
-  connection!: Deno.Conn;
-  connected: boolean;
-  authenticated: boolean;
+  #host: string;
+  #port: number;
+  #connection?: Deno.Conn;
+  #connected = false;
+  #authenticated = false;
+  #maxPacketSize = 4096;
 
   /**
-   * Source RCON (https://developer.valvesoftware.com/wiki/Source_RCON)
-   * @param {RconOptions} options Connection options
+   * Creates a new RCON connection
+   * @param {RconOptions} options The connection options
    */
   constructor(options: RconOptions) {
-    this.host = options.host;
+    const { host, port = 27015 } = options;
 
-    this.port = options.port ?? 27015;
-    this.maxPacketSize = options.maxPacketSize ?? 4096;
-    this.timeout = options.timeout ?? 2500;
+    this.#host = host;
+    this.#port = port;
+  }
 
-    this.authenticated = false;
-    this.connected = false;
+  /**
+   * Gets whether the socket is connected
+   */
+  get isConnected() {
+    return this.#connected;
+  }
+
+  /**
+   * Gets whether the connection is authenticated
+   */
+  get isAuthenticated() {
+    return this.#authenticated;
+  }
+
+  [Symbol.dispose]() {
+    this.disconnect();
   }
 
   /**
    * Authenticates the connection
-   * @param password Password string
+   * @param password The RCON password
    */
   public async authenticate(password: string): Promise<boolean> {
-    if (!this.connected) {
+    if (!this.#connected) {
       await this.#connect();
     }
 
-    return new Promise((resolve, reject) => {
-      if (this.authenticated) {
-        reject(new AlreadyAuthenicatedException());
-        return;
-      }
+    const response = await this.#send(
+      protocol.SERVERDATA_AUTH,
+      protocol.ID_AUTH,
+      password
+    );
 
-      this.#write(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password)
-        .then((data) => {
-          if (data === true) {
-            this.authenticated = true;
-            resolve(true);
-          } else {
-            this.disconnect();
-            reject(new UnableToAuthenicateException());
-          }
-        })
-        .catch(reject);
-    });
+    if (response === "true") {
+      this.#authenticated = true;
+      return true;
+    } else {
+      this.disconnect();
+      throw new UnableToAuthenicateException();
+    }
   }
 
   /**
    * Executes command on the server
    * @param command Command to execute
    */
-  public execute(command: string): Promise<string | boolean> {
-    return new Promise((resolve, reject) => {
-      if (!this.connected) {
-        reject(new NotAuthorizedException());
-        return;
-      }
-      const packetId = Math.floor(Math.random() * (256 - 1) + 1);
+  public async execute(command: string): Promise<string | boolean> {
+    if (!this.#connected) {
+      throw new NotConnectedException();
+    }
 
-      if (!this.authenticated) {
-        reject(new NotAuthorizedException());
-        return;
-      }
+    if (!this.#authenticated) {
+      throw new NotAuthorizedException();
+    }
 
-      this.#write(protocol.SERVERDATA_EXECCOMMAND, packetId, command)
-        .then(resolve)
-        .catch(reject);
-    });
+    const packetId = Math.floor(Math.random() * (256 - 1) + 1);
+
+    return await this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command);
   }
 
   /**
-   * Creates a connection to the socket
-   */
-  async #connect(): Promise<void> {
-    this.connection = await Deno.connect({
-      hostname: this.host,
-      port: this.port,
-    });
-  }
-
-  /**
-   * Destroys the socket connection
+   * Disconnects from the server and resets the authentication status
    */
   public disconnect() {
-    this.authenticated = false;
-    this.connected = false;
-    this.connection.close();
-  }
-
-  get isConnected() {
-    return this.connected;
-  }
-
-  get isAuthenticated() {
-    return this.authenticated;
+    this.#authenticated = false;
+    this.#connected = false;
+    this.#connection?.close();
   }
 
   /**
-   * Writes to socket connection
+   * Connects to the SRCDS server
+   */
+  async #connect() {
+    this.#connection = await Deno.connect({
+      hostname: this.#host,
+      port: this.#port,
+    });
+
+    this.#connected = true;
+  }
+
+  /**
+   * Writes to socket connection and returns the response from the RCON server
    * @param type Packet Type
    * @param id Packet ID
    * @param body Packet payload
    */
-  #write(type: number, id: number, body: string): Promise<string | boolean> {
-    // deno-lint-ignore no-async-promise-executor
-    return new Promise(async (resolve, reject) => {
-      let response = "";
+  async #send(type: number, id: number, body: string): Promise<string> {
+    const encodedPacket = encode(type, id, body);
 
-      const encodedPacket = encode(type, id, body);
+    if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
+      throw new PacketSizeTooBigException();
+    }
 
-      if (this.maxPacketSize > 0 && encodedPacket.length > this.maxPacketSize) {
-        reject(new PacketSizeTooBigException());
-        return;
+    await this.#connection!.write(encodedPacket);
+
+    let potentialMultiPacketResponse = new Uint8Array();
+
+    for await (const response of iterateReader(this.#connection!)) {
+      const decodedPacket = decode(response);
+
+      if (decodedPacket.size < 10) {
+        throw new UnableToParseResponseException();
       }
 
-      await this.connection.write(new Uint8Array(encodedPacket));
+      if (decodedPacket.id === -1) {
+        throw new UnableToAuthenicateException();
+      }
 
-      const packet = await readAll(this.connection);
-
-      const decodedPacket = decode(Buffer.from(packet));
-
-      // Server will respond twice (0x00 and 0x02) if we send an auth packet (0x03)
-      // but we need 0x02 to confirm
       if (
-        type === protocol.SERVERDATA_AUTH &&
-        decodedPacket.type !== protocol.SERVERDATA_AUTH_RESPONSE
-      ) {
-        return;
-      } else if (
         type === protocol.SERVERDATA_AUTH &&
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
         if (decodedPacket.id === protocol.ID_AUTH) {
-          resolve(true);
+          return "true";
         } else {
-          resolve(false);
+          return "false";
         }
       } else if (
-        id === decodedPacket.id ||
-        decodedPacket.id === protocol.ID_TERM
+        type !== protocol.SERVERDATA_AUTH &&
+        (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
+          decodedPacket.id === protocol.ID_TERM)
       ) {
+        // concat the response- even if it's not a multipacket response
         if (decodedPacket.id != protocol.ID_TERM) {
-          response = response.concat(decodedPacket.body.replace(/\n$/, "\n")); // remove last line break
+          potentialMultiPacketResponse = concat([
+            potentialMultiPacketResponse,
+            new TextEncoder().encode(decodedPacket.body),
+          ]);
         }
 
         // Hack to cope with multipacket responses
@@ -176,12 +190,14 @@ export default class Rcon {
             ""
           );
 
-          this.connection.write(new Uint8Array(encodedTerminationPacket));
+          await this.#connection!.write(encodedTerminationPacket);
         } else if (decodedPacket.size <= 3700) {
           // no need to check for ID_TERM here, since this packet will always be < 3700
-          resolve(response);
+          return new TextDecoder().decode(potentialMultiPacketResponse);
         }
       }
-    });
+    }
+
+    throw new Error("Unreachable");
   }
 }

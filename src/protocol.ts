@@ -1,36 +1,44 @@
 /**
- * RCON Packet Types
- * Reference: https://developer.valvesoftware.com/wiki/Source_RCON#Requests_and_Responses
+ * The list of [RCON Packet Types](https://developer.valvesoftware.com/wiki/Source_RCON#Requests_and_Responses)
  *
  * @readonly
  */
 const protocol = {
   /**
-   * First packet for authentication
+   * Used for authenticating the connection with the server
    */
   SERVERDATA_AUTH: 0x03,
 
   /**
-   * Command issued to the server
+   * Represents a command issue to the server by a client
    */
   SERVERDATA_EXECCOMMAND: 0x02,
 
   /**
-   * Response of SERVERDATA_AUTH
-   * @remarks If body is -1, the auth failed
+   * Notifies the connection's current authentication status
+   *
+   * @remarks When sent, the server will respond with an empty {@link SERVERDATA_RESPONSE_VALUE} followed by a {@link SERVERDATA_AUTH_RESPONSE} indicating if the authentication was successful. A value of -1 for the packet id will be set if the authentication failed
    */
   SERVERDATA_AUTH_RESPONSE: 0x02,
 
   /**
-   * Response of SERVERDATA_EXECCOMMAND
+   * Response to a {@link SERVERDATA_EXECCOMMAND}
    */
   SERVERDATA_RESPONSE_VALUE: 0x00,
 
+  /**
+   * The packet id used when issuing {@link SERVERDATA_AUTH} commands
+   *
+   * @internal
+   */
   ID_AUTH: 0x999,
 
-  ID_REQUEST: 0x123,
-
-  ID_TERM: 0x777,
+  /**
+   * The packet id used when working with multipacket responses
+   *
+   * @internal
+   */
+  ID_TERM: 0x888,
 } as const;
 
 export default protocol;

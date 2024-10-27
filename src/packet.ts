@@ -1,24 +1,25 @@
-import { Buffer } from "node:buffer";
-
 /**
- *  Encode data to packet buffer
+ * Encodes data to packet buffer
  * @param type Packet Type
  * @param id Packet ID
  * @param body Packet body (payload)
- * @param encoding Body encoding
  * @returns Encoded packet buffer
  */
-export const encode = (type: number, id: number, body: string): Buffer => {
-  const size = Buffer.byteLength(body) + 14; // body size + 10 + 4 (Null)
-  const buffer = Buffer.alloc(size);
+export const encode = (type: number, id: number, body: string): Uint8Array => {
+  const dataBuffer = new TextEncoder().encode(body);
+  const dataLength = dataBuffer.length;
 
-  buffer.writeInt32LE(size - 4, 0);
-  buffer.writeInt32LE(id, 4);
-  buffer.writeInt32LE(type, 8);
-  buffer.write(body, 12, size - 2);
-  buffer.writeInt16LE(0, size - 2);
+  const sendBuffer = new Uint8Array(dataLength + 14);
+  const view = new DataView(sendBuffer.buffer);
 
-  return buffer;
+  view.setInt32(0, dataLength + 10, true);
+  view.setInt32(4, id, true);
+  view.setInt32(8, type, true);
+  // set the text data
+  sendBuffer.set(dataBuffer, 12);
+  view.setInt16(dataLength + 12, 0, true);
+
+  return sendBuffer;
 };
 
 /**
@@ -27,15 +28,19 @@ export const encode = (type: number, id: number, body: string): Buffer => {
  * @param encoding Body encoding
  * @returns Decoded packet object
  */
-export const decode = (
-  buf: Buffer,
-  encoding: EncodingOptions = "ascii"
-): DecodedPacket => {
+export const decode = (data: Uint8Array): DecodedPacket => {
+  const dataView = new DataView(data.buffer);
+
+  const size = dataView.getInt32(0, true);
+  const id = dataView.getInt32(4, true);
+  const type = dataView.getInt32(8, true);
+  const payload = data.slice(12, 12 + size - 10);
+
   return {
-    size: buf.readInt32LE(0),
-    id: buf.readInt32LE(4),
-    type: buf.readInt32LE(8),
-    body: buf.toString(encoding, 12, buf.byteLength - 2),
+    size,
+    id,
+    type,
+    body: new TextDecoder().decode(payload),
   };
 };
 
@@ -45,5 +50,3 @@ interface DecodedPacket {
   type: number;
   body: string;
 }
-
-export type EncodingOptions = "ascii" | "utf8";
