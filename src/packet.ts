@@ -1,5 +1,5 @@
 /**
- * Encode data to packet buffer
+ * Encodes data to packet buffer
  * @param type Packet Type
  * @param id Packet ID
  * @param body Packet body (payload)
