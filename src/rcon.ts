@@ -1,5 +1,6 @@
 import protocol from "./protocol.ts";
 import { iterateReader } from "@std/io";
+import { concat } from "@std/bytes";
 import { encode, decode } from "./packet.ts";
 import {
   AlreadyAuthenicatedException,
@@ -124,6 +125,8 @@ export default class Rcon {
 
     await this.#connection!.write(encodedPacket);
 
+    let potentialMultiPacketResponse = new Uint8Array();
+
     for await (const response of iterateReader(this.#connection!)) {
       const decodedPacket = decode(response);
 
@@ -149,9 +152,12 @@ export default class Rcon {
         (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
           decodedPacket.id === protocol.ID_TERM)
       ) {
-        let response = "";
+        // concat a multipacket response
         if (decodedPacket.id != protocol.ID_TERM) {
-          response = response.concat(decodedPacket.body.replace(/\n$/, "\n")); // remove last line break
+          potentialMultiPacketResponse = concat([
+            potentialMultiPacketResponse,
+            new TextEncoder().encode(decodedPacket.body),
+          ]);
         }
 
         // Hack to cope with multipacket responses
@@ -166,7 +172,7 @@ export default class Rcon {
           await this.#connection!.write(encodedTerminationPacket);
         } else if (decodedPacket.size <= 3700) {
           // no need to check for ID_TERM here, since this packet will always be < 3700
-          return response;
+          return new TextDecoder().decode(potentialMultiPacketResponse);
         }
       }
     }
