@@ -14,6 +14,8 @@ import type { RconOptions } from "./types.ts";
 /**
  * Class that can interact with the [Value Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
  *
+ * RCON connections are made using TCP and responses are always in UTF-8
+ *
  * @example Log to console the response
  * ```ts
  * using rcon = new Rcon({ host: "game.example.com", port: 27015 });
@@ -26,6 +28,8 @@ import type { RconOptions } from "./types.ts";
  *
  * console.log(result);
  * ```
+ *
+ * Note the `using` will automatically disconnect and clean up the resources. You can call disconnect manually as well
  */
 export default class Rcon {
   #host: string;
