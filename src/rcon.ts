@@ -1,6 +1,7 @@
 import protocol from "./protocol.ts";
 import { iterateReader } from "@std/io";
 import { concat } from "@std/bytes";
+import { createConnection, type Socket } from "node:net";
 import { encode, decode } from "./packet.ts";
 import {
   NotAuthenticatedException,
@@ -34,7 +35,7 @@ import type { RconOptions } from "./types.ts";
 export default class Rcon {
   #host: string;
   #port: number;
-  #connection?: Deno.Conn;
+  #connection?: Socket;
   #connected = false;
   #authenticated = false;
   #maxPacketSize = 4096;
@@ -116,15 +117,15 @@ export default class Rcon {
   public disconnect() {
     this.#authenticated = false;
     this.#connected = false;
-    this.#connection?.close();
+    this.#connection?.end();
   }
 
   /**
    * Connects to the SRCDS server
    */
-  async #connect() {
-    this.#connection = await Deno.connect({
-      hostname: this.#host,
+  #connect() {
+    this.#connection = createConnection({
+      host: this.#host,
       port: this.#port,
     });
 
