@@ -176,5 +176,7 @@ export default class Rcon {
         }
       }
     }
+
+    throw new Error("Unreachable");
   }
 }
