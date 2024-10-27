@@ -1,6 +1,6 @@
 import protocol from "./protocol.ts";
 import { Buffer } from "node:buffer";
-import { readAll } from "@std/io";
+import { iterateReader, readAll } from "@std/io";
 import { encode, decode } from "./packet.ts";
 import {
   AlreadyAuthenicatedException,
@@ -8,36 +8,39 @@ import {
   PacketSizeTooBigException,
   UnableToAuthenicateException,
 } from "./errors.ts";
+import type { RconOptions } from "./types.ts";
 
-export interface RconOptions {
-  host: string;
-  port?: number;
-  maxPacketSize?: number;
-  timeout?: number;
-}
-
+/**
+ * Class that can interact with the [Value Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
+ */
 export default class Rcon {
   host: string;
   port: number;
-  maxPacketSize: number;
   timeout: number;
-  connection!: Deno.Conn;
-  connected: boolean;
-  authenticated: boolean;
+
+  #connection?: Deno.Conn;
+  #connected = false;
+  #authenticated = false;
+  #maxPacketSize = 4096;
 
   /**
-   * Source RCON (https://developer.valvesoftware.com/wiki/Source_RCON)
+   * Creates a new RCON connection
    * @param {RconOptions} options Connection options
    */
   constructor(options: RconOptions) {
-    this.host = options.host;
+    const { host, port = 27015, timeout = 2500 } = options;
 
-    this.port = options.port ?? 27015;
-    this.maxPacketSize = options.maxPacketSize ?? 4096;
-    this.timeout = options.timeout ?? 2500;
+    this.host = host;
+    this.port = port;
+    this.timeout = timeout;
+  }
 
-    this.authenticated = false;
-    this.connected = false;
+  get isConnected() {
+    return this.#connected;
+  }
+
+  get isAuthenticated() {
+    return this.#authenticated;
   }
 
   /**
@@ -45,124 +48,109 @@ export default class Rcon {
    * @param password Password string
    */
   public async authenticate(password: string): Promise<boolean> {
-    if (!this.connected) {
+    if (!this.#connected) {
       await this.#connect();
     }
 
-    return new Promise((resolve, reject) => {
-      if (this.authenticated) {
-        reject(new AlreadyAuthenicatedException());
-        return;
-      }
+    if (this.#authenticated) {
+      throw new AlreadyAuthenicatedException();
+    }
 
-      this.#write(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password)
-        .then((data) => {
-          if (data === true) {
-            this.authenticated = true;
-            resolve(true);
-          } else {
-            this.disconnect();
-            reject(new UnableToAuthenicateException());
-          }
-        })
-        .catch(reject);
-    });
+    const response = await this.#send(
+      protocol.SERVERDATA_AUTH,
+      protocol.ID_AUTH,
+      password
+    );
+
+    if (response === true) {
+      this.#authenticated = true;
+      return true;
+    } else {
+      this.disconnect();
+      throw new UnableToAuthenicateException();
+    }
   }
 
   /**
    * Executes command on the server
    * @param command Command to execute
    */
-  public execute(command: string): Promise<string | boolean> {
-    return new Promise((resolve, reject) => {
-      if (!this.connected) {
-        reject(new NotAuthorizedException());
-        return;
-      }
-      const packetId = Math.floor(Math.random() * (256 - 1) + 1);
+  public async execute(command: string) {
+    if (!this.#connected) {
+      throw new NotAuthorizedException();
+    }
 
-      if (!this.authenticated) {
-        reject(new NotAuthorizedException());
-        return;
-      }
+    const packetId = Math.floor(Math.random() * (256 - 1) + 1);
 
-      this.#write(protocol.SERVERDATA_EXECCOMMAND, packetId, command)
-        .then(resolve)
-        .catch(reject);
-    });
+    if (!this.#authenticated) {
+      throw new NotAuthorizedException();
+    }
+
+    return await this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command);
   }
 
   /**
    * Creates a connection to the socket
    */
-  async #connect(): Promise<void> {
-    this.connection = await Deno.connect({
+  async #connect() {
+    this.#connection = await Deno.connect({
       hostname: this.host,
       port: this.port,
     });
+
+    this.#connected = true;
   }
 
   /**
    * Destroys the socket connection
    */
   public disconnect() {
-    this.authenticated = false;
-    this.connected = false;
-    this.connection.close();
-  }
-
-  get isConnected() {
-    return this.connected;
-  }
-
-  get isAuthenticated() {
-    return this.authenticated;
+    this.#authenticated = false;
+    this.#connected = false;
+    this.#connection?.close();
   }
 
   /**
-   * Writes to socket connection
+   * Writes to socket connection and returns the response from the RCON server
    * @param type Packet Type
    * @param id Packet ID
    * @param body Packet payload
    */
-  #write(type: number, id: number, body: string): Promise<string | boolean> {
-    // deno-lint-ignore no-async-promise-executor
-    return new Promise(async (resolve, reject) => {
-      let response = "";
+  async #send(type: number, id: number, body: string) {
+    const encodedPacket = encode(type, id, body);
 
-      const encodedPacket = encode(type, id, body);
+    if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
+      throw new PacketSizeTooBigException();
+    }
 
-      if (this.maxPacketSize > 0 && encodedPacket.length > this.maxPacketSize) {
-        reject(new PacketSizeTooBigException());
-        return;
+    await this.#connection!.write(encodedPacket);
+
+    for await (const response of iterateReader(this.#connection!)) {
+      const decodedPacket = decode(response);
+
+      if (decodedPacket.size < 10) {
+        throw new Error("failed to decode packet");
       }
 
-      await this.connection.write(new Uint8Array(encodedPacket));
+      if (decodedPacket.id === -1) {
+        throw new UnableToAuthenicateException();
+      }
 
-      const packet = await readAll(this.connection);
-
-      const decodedPacket = decode(Buffer.from(packet));
-
-      // Server will respond twice (0x00 and 0x02) if we send an auth packet (0x03)
-      // but we need 0x02 to confirm
       if (
-        type === protocol.SERVERDATA_AUTH &&
-        decodedPacket.type !== protocol.SERVERDATA_AUTH_RESPONSE
-      ) {
-        return;
-      } else if (
         type === protocol.SERVERDATA_AUTH &&
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
         if (decodedPacket.id === protocol.ID_AUTH) {
-          resolve(true);
+          return true;
         } else {
-          resolve(false);
+          return false;
         }
       } else if (
-        id === decodedPacket.id ||
-        decodedPacket.id === protocol.ID_TERM
+        type !== protocol.SERVERDATA_AUTH &&
+        (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
+          decodedPacket.id === protocol.ID_TERM)
       ) {
+        let response = "";
         if (decodedPacket.id != protocol.ID_TERM) {
           response = response.concat(decodedPacket.body.replace(/\n$/, "\n")); // remove last line break
         }
@@ -176,12 +164,12 @@ export default class Rcon {
             ""
           );
 
-          this.connection.write(new Uint8Array(encodedTerminationPacket));
+          await this.#connection!.write(encodedTerminationPacket);
         } else if (decodedPacket.size <= 3700) {
           // no need to check for ID_TERM here, since this packet will always be < 3700
-          resolve(response);
+          return response;
         }
       }
-    });
+    }
   }
 }
