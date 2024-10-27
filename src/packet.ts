@@ -1,5 +1,3 @@
-import type { Buffer } from "node:buffer";
-
 /**
  * Encode data to packet buffer
  * @param type Packet Type

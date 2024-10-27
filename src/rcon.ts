@@ -1,6 +1,5 @@
 import protocol from "./protocol.ts";
-import { Buffer } from "node:buffer";
-import { iterateReader, readAll } from "@std/io";
+import { iterateReader } from "@std/io";
 import { encode, decode } from "./packet.ts";
 import {
   AlreadyAuthenicatedException,
