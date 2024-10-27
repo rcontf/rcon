@@ -3,6 +3,7 @@ import Rcon from "./src/rcon.ts";
 
 const args = parseArgs(Deno.args, {
   string: ["password", "ip", "port", "command"],
+  boolean: ["console", "file"],
 });
 
 if (!args.password || !args.ip || !args.command) {
@@ -18,11 +19,17 @@ if (!args.password || !args.ip || !args.command) {
 
   const didAuthenticate = await rcon.authenticate(args.password!);
 
-  console.log(`Authentication status: ${didAuthenticate}`);
-
   if (didAuthenticate) {
     const result = await rcon.execute(args.command!);
 
-    console.log(result);
+    if (args.file) {
+      Deno.writeTextFile(`${Deno.cwd()}/rcon-result.txt`, result.toString(), {
+        append: true,
+      });
+    } else if (args.console) {
+      console.log(result);
+    }
+  } else {
+    console.error("RCON password incorrect");
   }
 }
