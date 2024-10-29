@@ -1,5 +1,4 @@
 import protocol from "./protocol.ts";
-import { iterateReader } from "@std/io";
 import { concat } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
 import { encode, decode } from "./packet.ts";
@@ -75,7 +74,7 @@ export default class Rcon {
    */
   public async authenticate(password: string): Promise<boolean> {
     if (!this.#connected) {
-      await this.#connect();
+      this.#connect();
     }
 
     const response = await this.#send(
@@ -127,6 +126,7 @@ export default class Rcon {
     this.#connection = createConnection({
       host: this.#host,
       port: this.#port,
+      timeout: 1000,
     });
 
     this.#connected = true;
@@ -145,12 +145,16 @@ export default class Rcon {
       throw new PacketSizeTooBigException();
     }
 
-    await this.#connection!.write(encodedPacket);
+    this.#connection!.write(encodedPacket);
 
     let potentialMultiPacketResponse = new Uint8Array();
 
-    for await (const response of iterateReader(this.#connection!)) {
-      const decodedPacket = decode(response);
+    const socketIterator = this.#connection![Symbol.asyncIterator]();
+
+    while (true) {
+      const { value } = await socketIterator.next();
+
+      const decodedPacket = decode(value);
 
       if (decodedPacket.size < 10) {
         throw new UnableToParseResponseException();
@@ -191,14 +195,12 @@ export default class Rcon {
             ""
           );
 
-          await this.#connection!.write(encodedTerminationPacket);
+          this.#connection!.write(encodedTerminationPacket);
         } else if (decodedPacket.size <= 3700) {
           // no need to check for ID_TERM here, since this packet will always be < 3700
           return new TextDecoder().decode(potentialMultiPacketResponse);
         }
       }
     }
-
-    throw new Error("Unreachable");
   }
 }
