@@ -23,7 +23,7 @@ const result = await rcon.execute("status");
 console.log(result);
 ```
 
-For more examples, see the [documentation on jsr](https://jsr.io/@c43721/rcon/doc).
+For more examples, see the [documentation on jsr](https://jsr.io/@c43721/rcon/doc) or see the [cli.ts file](cli.ts).
 
 ## Contributing
 
