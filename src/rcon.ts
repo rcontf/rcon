@@ -53,14 +53,14 @@ export class Rcon {
   /**
    * Gets whether the socket is connected
    */
-  get isConnected() {
+  get isConnected(): boolean {
     return this.#connected;
   }
 
   /**
    * Gets whether the connection is authenticated
    */
-  get isAuthenticated() {
+  get isAuthenticated(): boolean {
     return this.#authenticated;
   }
 
