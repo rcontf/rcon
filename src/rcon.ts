@@ -31,7 +31,7 @@ import type { RconOptions } from "./types.ts";
  *
  * Note the `using` will automatically disconnect and clean up the resources. You can call disconnect manually as well
  */
-export default class Rcon {
+export class Rcon {
   #host: string;
   #port: number;
   #connection?: Socket;
