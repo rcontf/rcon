@@ -74,6 +74,8 @@ export class Rcon {
   /**
    * Authenticates the connection
    * @param password The RCON password
+   * 
+   * @returns {Promise<boolean>} The result of the authentication
    */
   public async authenticate(password: string): Promise<boolean> {
     if (!this.#connected) {
@@ -96,10 +98,12 @@ export class Rcon {
   }
 
   /**
-   * Executes command on the server
-   * @param command Command to execute
+   * Executes a command on the server
+   * @param command The command to execute
+   * 
+   * @returns {Promise<string>} The result of the execution
    */
-  public async execute(command: string): Promise<string | boolean> {
+  public async execute(command: string): Promise<string> {
     if (!this.#connected) {
       throw new NotConnectedException();
     }
