@@ -1,4 +1,4 @@
-import protocol from "./protocol.ts";
+import { protocol } from "./protocol.ts";
 import { concat } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
 import { encode, decode } from "./packet.ts";
@@ -12,7 +12,7 @@ import {
 import type { RconOptions } from "./types.ts";
 
 /**
- * Class that can interact with the [Value Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
+ * Class that can interact with the [Valve Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
  *
  * RCON connections are made using TCP and responses are always in UTF-8
  *
@@ -64,6 +64,9 @@ export class Rcon {
     return this.#authenticated;
   }
 
+  /**
+   * Disposes the resources
+   */
   [Symbol.dispose]() {
     this.disconnect();
   }

@@ -3,7 +3,7 @@
  *
  * @readonly
  */
-const protocol = {
+export const protocol = {
   /**
    * Used for authenticating the connection with the server
    */
@@ -40,5 +40,3 @@ const protocol = {
    */
   ID_TERM: 0x888,
 } as const;
-
-export default protocol;

@@ -1,5 +1,5 @@
 import { parseArgs } from "@std/cli";
-import Rcon from "./src/rcon.ts";
+import { Rcon } from "./src/rcon.ts";
 
 const args = parseArgs(Deno.args, {
   string: ["password", "ip", "port", "command"],
