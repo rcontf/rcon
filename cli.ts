@@ -14,6 +14,7 @@ if (!args.password || !args.ip || !args.command) {
   using rcon = new Rcon({
     host: args.ip,
     port,
+    timeout: 5_000,
   });
 
   const didAuthenticate = await rcon.authenticate(args.password!);

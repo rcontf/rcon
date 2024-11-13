@@ -2,6 +2,7 @@ import { protocol } from "./protocol.ts";
 import { concat } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
 import { encode, decode } from "./packet.ts";
+import { abortable } from "@std/async";
 import {
   NotAuthenticatedException,
   NotConnectedException,
@@ -34,6 +35,8 @@ import type { RconOptions } from "./types.ts";
 export class Rcon {
   #host: string;
   #port: number;
+  #timeout: number;
+
   #connection?: Socket;
   #connected = false;
   #authenticated = false;
@@ -44,10 +47,11 @@ export class Rcon {
    * @param {RconOptions} options The connection options
    */
   constructor(options: RconOptions) {
-    const { host, port = 27015 } = options;
+    const { host, port = 27015, timeout = 30_000 } = options;
 
     this.#host = host;
     this.#port = port;
+    this.#timeout = timeout;
   }
 
   /**
@@ -74,7 +78,7 @@ export class Rcon {
   /**
    * Authenticates the connection
    * @param password The RCON password
-   * 
+   *
    * @returns {Promise<boolean>} The result of the authentication
    */
   public async authenticate(password: string): Promise<boolean> {
@@ -82,10 +86,9 @@ export class Rcon {
       this.#connect();
     }
 
-    const response = await this.#send(
-      protocol.SERVERDATA_AUTH,
-      protocol.ID_AUTH,
-      password
+    const response = await abortable(
+      this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password),
+      AbortSignal.timeout(this.#timeout)
     );
 
     if (response === "true") {
@@ -100,7 +103,7 @@ export class Rcon {
   /**
    * Executes a command on the server
    * @param command The command to execute
-   * 
+   *
    * @returns {Promise<string>} The result of the execution
    */
   public async execute(command: string): Promise<string> {
@@ -114,7 +117,10 @@ export class Rcon {
 
     const packetId = Math.floor(Math.random() * (256 - 1) + 1);
 
-    return await this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command);
+    return await abortable(
+      this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command),
+      AbortSignal.timeout(this.#timeout)
+    );
   }
 
   /**
@@ -185,7 +191,6 @@ export class Rcon {
         (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
           decodedPacket.id === protocol.ID_TERM)
       ) {
-        // concat the response- even if it's not a multipacket response
         if (decodedPacket.id != protocol.ID_TERM) {
           potentialMultiPacketResponse = concat([
             potentialMultiPacketResponse,
@@ -204,7 +209,6 @@ export class Rcon {
 
           this.#connection!.write(encodedTerminationPacket);
         } else if (decodedPacket.size <= 3700) {
-          // no need to check for ID_TERM here, since this packet will always be < 3700
           return new TextDecoder().decode(potentialMultiPacketResponse);
         }
       }
