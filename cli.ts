@@ -17,10 +17,10 @@ if (!args.password || !args.ip || !args.command) {
     timeout: 5_000,
   });
 
-  const didAuthenticate = await rcon.authenticate(args.password!);
+  const didAuthenticate = await rcon.authenticate(args.password);
 
   if (didAuthenticate) {
-    const result = await rcon.execute(args.command!);
+    const result = await rcon.execute(args.command);
 
     if (args.file) {
       Deno.writeTextFile(`${Deno.cwd()}/rcon-result.txt`, result.toString(), {
