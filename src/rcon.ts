@@ -1,15 +1,9 @@
 import { protocol } from "./protocol.ts";
 import { concat } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
-import { encode, decode } from "./packet.ts";
+import { decode, encode } from "./packet.ts";
 import { abortable } from "@std/async";
-import {
-  NotAuthenticatedException,
-  NotConnectedException,
-  PacketSizeTooBigException,
-  UnableToAuthenicateException,
-  UnableToParseResponseException,
-} from "./errors.ts";
+import { NotAuthenticatedException, NotConnectedException, PacketSizeTooBigException, UnableToAuthenicateException, UnableToParseResponseException } from "./errors.ts";
 import type { RconOptions } from "./types.ts";
 
 /**
@@ -88,7 +82,7 @@ export class Rcon {
 
     const response = await abortable(
       this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password),
-      AbortSignal.timeout(this.#timeout)
+      AbortSignal.timeout(this.#timeout),
     );
 
     if (response === "true") {
@@ -119,7 +113,7 @@ export class Rcon {
 
     return await abortable(
       this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command),
-      AbortSignal.timeout(this.#timeout)
+      AbortSignal.timeout(this.#timeout),
     );
   }
 
@@ -204,7 +198,7 @@ export class Rcon {
           const encodedTerminationPacket = encode(
             protocol.SERVERDATA_RESPONSE_VALUE,
             protocol.ID_TERM,
-            ""
+            "",
           );
 
           this.#connection!.write(encodedTerminationPacket);

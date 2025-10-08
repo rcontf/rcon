@@ -2,12 +2,12 @@ services:
   gameserver:
     image: ghcr.io/melkortf/tf2-base:latest
     environment:
-      - 'SERVER_HOSTNAME=test-server'
-      - 'PORT=27015'
-      - 'CLIENT_PORT=27016'
-      - 'STEAM_PORT=27017'
-      - 'STV_PORT=27020'
-      - 'RCON_PASSWORD=password'
+      - "SERVER_HOSTNAME=test-server"
+      - "PORT=27015"
+      - "CLIENT_PORT=27016"
+      - "STEAM_PORT=27017"
+      - "STV_PORT=27020"
+      - "RCON_PASSWORD=password"
     ports:
       - 27015:27015
     network_mode: host
