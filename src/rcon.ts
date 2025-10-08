@@ -80,18 +80,14 @@ export class Rcon {
       this.#connect();
     }
 
+    // This can only ever be a boolean
     const response = await abortable(
-      this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password),
+      this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password).catch(() => false),
       AbortSignal.timeout(this.#timeout),
-    );
+    ) as boolean;
 
-    if (response === "true") {
-      this.#authenticated = true;
-      return true;
-    } else {
-      this.disconnect();
-      throw new UnableToAuthenicateException();
-    }
+    this.#authenticated = response;
+    return response;
   }
 
   /**
@@ -111,10 +107,11 @@ export class Rcon {
 
     const packetId = Math.floor(Math.random() * (256 - 1) + 1);
 
+    // by this point, the return is only ever a string
     return await abortable(
       this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command),
       AbortSignal.timeout(this.#timeout),
-    );
+    ) as string;
   }
 
   /**
@@ -123,7 +120,7 @@ export class Rcon {
   public disconnect() {
     this.#authenticated = false;
     this.#connected = false;
-    this.#connection?.end();
+    this.#connection?.destroy();
   }
 
   /**
@@ -145,7 +142,7 @@ export class Rcon {
    * @param id Packet ID
    * @param body Packet payload
    */
-  async #send(type: number, id: number, body: string): Promise<string> {
+  async #send(type: number, id: number, body: string): Promise<string | boolean> {
     const encodedPacket = encode(type, id, body);
 
     if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
@@ -176,9 +173,9 @@ export class Rcon {
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
         if (decodedPacket.id === protocol.ID_AUTH) {
-          return "true";
+          return true;
         } else {
-          return "false";
+          return false;
         }
       } else if (
         type !== protocol.SERVERDATA_AUTH &&
@@ -188,7 +185,7 @@ export class Rcon {
         if (decodedPacket.id != protocol.ID_TERM) {
           potentialMultiPacketResponse = concat([
             potentialMultiPacketResponse,
-            new TextEncoder().encode(decodedPacket.body),
+            decodedPacket.body,
           ]);
         }
 
