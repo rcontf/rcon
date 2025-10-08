@@ -1,7 +1,6 @@
 # Deno Source RCON Protocol
 
-Complete implementation of the
-[Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON_Protocol).
+Complete implementation of the [Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON_Protocol).
 
 ## Install
 
@@ -27,8 +26,7 @@ For more examples, see the [documentation on jsr](https://jsr.io/@c43721/rcon/do
 
 ## Contributing
 
-If there's a feature or bug, please raise a github issue first alongside your PR
-(if you're kind enough to make a PR.)
+If there's a feature or bug, please raise a github issue first alongside your PR (if you're kind enough to make a PR.)
 
 ## Acknowledgements
 

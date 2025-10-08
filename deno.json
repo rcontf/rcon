@@ -9,5 +9,10 @@
   "exports": "./mod.ts",
   "publish": {
     "include": ["README.md", "mod.ts", "src/"]
+  },
+  "fmt": {
+    "lineWidth": 240,
+    "trailingCommas": "onlyMultiLine",
+    "useBraces": "always"
   }
 }
