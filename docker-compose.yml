@@ -8,8 +8,6 @@ services:
       - "STEAM_PORT=27017"
       - "STV_PORT=27020"
       - "RCON_PASSWORD=password"
-    ports:
-      - 27015:27015
     network_mode: host
     stdin_open: true
     tty: true

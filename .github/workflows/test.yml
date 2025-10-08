@@ -18,20 +18,20 @@ jobs:
 
     services:
       test-server:
-          image: ghcr.io/tf2pickup-org/tf2-gameserver:latest
-          ports:
-            - 27015:27015/tcp
-            - 27015:27015/udp
-            - 27020:27020/udp
-          env:
-            SERVER_HOSTNAME: 'test rcon server'
-            PORT: 27015
-            CLIENT_PORT: 27016
-            STEAM_PORT: 27017
-            STV_PORT: 27020
-            RCON_PASSWORD: 'password'
-          options: --tty --add-host host.docker.internal:host-gateway
-    
+        image: ghcr.io/tf2pickup-org/tf2-gameserver:latest
+        ports:
+          - 27015:27015/tcp
+          - 27015:27015/udp
+          - 27020:27020/udp
+        env:
+          SERVER_HOSTNAME: "test rcon server"
+          PORT: 27015
+          CLIENT_PORT: 27016
+          STEAM_PORT: 27017
+          STV_PORT: 27020
+          RCON_PASSWORD: "password"
+        options: --tty --add-host host.docker.internal:host-gateway
+
     steps:
       - uses: actions/checkout@v4
 
