@@ -1,9 +1,12 @@
 {
   "name": "@c43721/rcon",
+  "tasks": {
+    "test": "deno test -WN"
+  },
   "imports": {
-    "@std/bytes": "jsr:@std/bytes@^1.0.2",
-    "@std/cli": "jsr:@std/cli@^1.0.6",
-    "@std/async": "jsr:@std/async@^1.0.8"
+    "@std/bytes": "jsr:@std/bytes@^1.0.6",
+    "@std/cli": "jsr:@std/cli@^1.0.22",
+    "@std/async": "jsr:@std/async@^1.0.14"
   },
   "version": "0.0.7",
   "exports": "./mod.ts",
