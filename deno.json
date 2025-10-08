@@ -5,8 +5,8 @@
   },
   "imports": {
     "@std/bytes": "jsr:@std/bytes@^1.0.6",
-    "@std/cli": "jsr:@std/cli@^1.0.22",
-    "@std/async": "jsr:@std/async@^1.0.14"
+    "@std/cli": "jsr:@std/cli@^1.0.23",
+    "@std/async": "jsr:@std/async@^1.0.15"
   },
   "version": "0.0.7",
   "exports": "./mod.ts",
