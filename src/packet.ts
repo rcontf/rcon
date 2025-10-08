@@ -34,13 +34,13 @@ export const decode = (data: Uint8Array): DecodedPacket => {
   const size = dataView.getInt32(0, true);
   const id = dataView.getInt32(4, true);
   const type = dataView.getInt32(8, true);
-  const payload = data.slice(12, 12 + size - 10);
+  const payload = data.slice(12, size);
 
   return {
     size,
     id,
     type,
-    body: new TextDecoder().decode(payload),
+    body: payload,
   };
 };
 
@@ -48,5 +48,5 @@ interface DecodedPacket {
   size: number;
   id: number;
   type: number;
-  body: string;
+  body: Uint8Array;
 }
