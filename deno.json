@@ -1,7 +1,7 @@
 {
   "name": "@c43721/rcon",
   "tasks": {
-    "test": "deno test -WN"
+    "test": "deno test -WN --allow-read=tests/fixtures"
   },
   "imports": {
     "@std/bytes": "jsr:@std/bytes@^1.0.6",

@@ -1,10 +1,11 @@
 import { protocol } from "./protocol.ts";
-import { concat } from "@std/bytes";
+import { concat, equals } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
 import { decode, encode } from "./packet.ts";
 import { abortable } from "@std/async";
 import { NotAuthenticatedException, NotConnectedException, PacketSizeTooBigException, UnableToAuthenicateException, UnableToParseResponseException } from "./errors.ts";
 import type { RconOptions } from "./types.ts";
+import { setTimeout } from "node:timers/promises";
 
 /**
  * Class that can interact with the [Valve Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON)
@@ -82,7 +83,7 @@ export class Rcon {
 
     // This can only ever be a boolean
     const response = await abortable(
-      this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password).catch(() => false),
+      this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password),
       AbortSignal.timeout(this.#timeout),
     ) as boolean;
 
@@ -142,7 +143,9 @@ export class Rcon {
    * @param id Packet ID
    * @param body Packet payload
    */
+  // @ts-ignore I know it's right
   async #send(type: number, id: number, body: string): Promise<string | boolean> {
+    const { promise, reject, resolve } = Promise.withResolvers<string | boolean>();
     const encodedPacket = encode(type, id, body);
 
     if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
@@ -151,21 +154,36 @@ export class Rcon {
 
     this.#connection!.write(encodedPacket);
 
+    let hasSentTermPacket = false;
     let potentialMultiPacketResponse = new Uint8Array();
 
-    const socketIterator = this.#connection![Symbol.asyncIterator]();
+    let i = 0;
 
-    while (true) {
-      const { value } = await socketIterator.next();
+    this.#connection!.on("drain", () => console.log("drained"));
+    this.#connection!.on("error", () => console.log("error"));
+    this.#connection!.on("data", (value) => parse(value));
 
+    const parse = async (value: Uint8Array) => {
+      await setTimeout(1000);
       const decodedPacket = decode(value);
+      console.log(`packet: ${++i} - size ${decodedPacket.size} `);
 
       if (decodedPacket.size < 10) {
-        throw new UnableToParseResponseException();
+        reject(new UnableToParseResponseException());
       }
 
       if (decodedPacket.id === -1) {
-        throw new UnableToAuthenicateException();
+        reject(new UnableToAuthenicateException());
+      }
+
+      if (decodedPacket.size > this.#maxPacketSize + 200) {
+        console.warn("Max size detected");
+      }
+
+      const endMarker = new Uint8Array([0x00, 0x01]);
+      if (decodedPacket.id === protocol.ID_TERM && equals(decodedPacket.body, endMarker)) {
+        console.log("Yo we hit the end");
+        resolve(new TextDecoder().decode(potentialMultiPacketResponse));
       }
 
       if (
@@ -173,25 +191,28 @@ export class Rcon {
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
         if (decodedPacket.id === protocol.ID_AUTH) {
-          return true;
+          return resolve(true);
         } else {
-          return false;
+          return resolve(false);
         }
       } else if (
         type !== protocol.SERVERDATA_AUTH &&
-        (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
-          decodedPacket.id === protocol.ID_TERM)
+        (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE)
       ) {
-        if (decodedPacket.id != protocol.ID_TERM) {
-          potentialMultiPacketResponse = concat([
-            potentialMultiPacketResponse,
-            decodedPacket.body,
-          ]);
+        potentialMultiPacketResponse = concat([
+          potentialMultiPacketResponse,
+          decodedPacket.body,
+        ]);
+
+        if (!hasSentTermPacket && decodedPacket.size <= 3700) {
+          resolve(new TextDecoder().decode(potentialMultiPacketResponse));
         }
 
         // Hack to cope with multipacket responses
         // see https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
-        if (decodedPacket.size > 3700) {
+        if (decodedPacket.size > 3700 && !hasSentTermPacket) {
+          console.info("packet large- lmk when bro");
+          hasSentTermPacket = true;
           const encodedTerminationPacket = encode(
             protocol.SERVERDATA_RESPONSE_VALUE,
             protocol.ID_TERM,
@@ -199,10 +220,10 @@ export class Rcon {
           );
 
           this.#connection!.write(encodedTerminationPacket);
-        } else if (decodedPacket.size <= 3700) {
-          return new TextDecoder().decode(potentialMultiPacketResponse);
         }
       }
-    }
+    };
+
+    return await promise;
   }
 }

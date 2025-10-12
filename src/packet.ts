@@ -25,11 +25,10 @@ export const encode = (type: number, id: number, body: string): Uint8Array => {
 /**
  * Decodes packet buffer to data
  * @param buf Buffer to decode
- * @param encoding Body encoding
  * @returns Decoded packet object
  */
 export const decode = (data: Uint8Array): DecodedPacket => {
-  const dataView = new DataView(data.buffer);
+  const dataView = new DataView(data.buffer, 0, data.length);
 
   const size = dataView.getInt32(0, true);
   const id = dataView.getInt32(4, true);
