@@ -121,6 +121,7 @@ export class Rcon {
     this.#authenticated = false;
     this.#connected = false;
     this.#connection?.destroy();
+    this.#connection = undefined;
   }
 
   /**
@@ -172,11 +173,7 @@ export class Rcon {
         type === protocol.SERVERDATA_AUTH &&
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
-        if (decodedPacket.id === protocol.ID_AUTH) {
-          return true;
-        } else {
-          return false;
-        }
+        return decodedPacket.id === protocol.ID_AUTH;
       } else if (
         type !== protocol.SERVERDATA_AUTH &&
         (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
