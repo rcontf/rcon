@@ -120,8 +120,7 @@ export class Rcon {
   public disconnect() {
     this.#authenticated = false;
     this.#connected = false;
-    this.#connection?.destroy();
-    this.#connection = undefined;
+    this.#connection?.end();
   }
 
   /**
@@ -144,6 +143,7 @@ export class Rcon {
    * @param body Packet payload
    */
   async #send(type: number, id: number, body: string): Promise<string | boolean> {
+    const { promise, resolve, reject } = Promise.withResolvers<string | boolean>();
     const encodedPacket = encode(type, id, body);
 
     if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
@@ -154,37 +154,31 @@ export class Rcon {
 
     let potentialMultiPacketResponse = new Uint8Array();
 
-    const socketIterator = this.#connection![Symbol.asyncIterator]();
-
-    while (true) {
-      const { value } = await socketIterator.next();
-
+    const parseResponse = (value: Uint8Array) => {
       const decodedPacket = decode(value);
 
       if (decodedPacket.size < 10) {
-        throw new UnableToParseResponseException();
+        reject(new UnableToParseResponseException());
       }
 
       if (decodedPacket.id === -1) {
-        throw new UnableToAuthenicateException();
+        reject(new UnableToAuthenicateException());
       }
 
       if (
         type === protocol.SERVERDATA_AUTH &&
         decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
       ) {
-        return decodedPacket.id === protocol.ID_AUTH;
+        resolve(decodedPacket.id === protocol.ID_AUTH);
       } else if (
         type !== protocol.SERVERDATA_AUTH &&
         (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
           decodedPacket.id === protocol.ID_TERM)
       ) {
-        if (decodedPacket.id != protocol.ID_TERM) {
-          potentialMultiPacketResponse = concat([
-            potentialMultiPacketResponse,
-            decodedPacket.body,
-          ]);
-        }
+        potentialMultiPacketResponse = concat([
+          potentialMultiPacketResponse,
+          decodedPacket.body,
+        ]);
 
         // Hack to cope with multipacket responses
         // see https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
@@ -197,9 +191,19 @@ export class Rcon {
 
           this.#connection!.write(encodedTerminationPacket);
         } else if (decodedPacket.size <= 3700) {
-          return new TextDecoder().decode(potentialMultiPacketResponse);
+          resolve(new TextDecoder().decode(potentialMultiPacketResponse));
         }
       }
-    }
+    };
+
+    this.#connection!.on("data", (value) => {
+      parseResponse(value);
+    });
+
+    this.#connection!.on("end", () => {
+      this.#connection!.off("data", parseResponse);
+    });
+
+    return await promise;
   }
 }

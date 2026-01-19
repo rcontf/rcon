@@ -9,12 +9,16 @@ Deno.test("Rcon can authenticate", async () => {
   assert.equal(didAuthenticate, true);
 });
 
-Deno.test("Rcon will not authenticate on a bad password", async () => {
-  using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
+Deno.test({
+  name: "Rcon will not authenticate on a bad password",
+  ignore: false,
+  fn: async () => {
+    using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
 
-  const didAuthenticate = await rcon.authenticate("badpassword");
+    const didAuthenticate = await rcon.authenticate("badpassword");
 
-  assert.equal(didAuthenticate, false);
+    assert.equal(didAuthenticate, false);
+  },
 });
 
 Deno.test("Rcon returns the result of the command as a string", async () => {
