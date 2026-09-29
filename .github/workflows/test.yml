@@ -13,8 +13,25 @@ permissions:
   pull-requests: write
 
 jobs:
-  test:
+  unit-tests:
+    name: Unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          cache: true
+          deno-version: v2.x
+
+      - run: deno task test
+
+  e2e-tests:
+    name: End-to-end tests (real game server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     services:
       test-server:
@@ -40,4 +57,16 @@ jobs:
           cache: true
           deno-version: v2.x
 
-      - run: deno task test
+      - name: Wait for game server port
+        run: |
+          for i in $(seq 1 30); do
+            nc -z 127.0.0.1 27015 && exit 0
+            sleep 2
+          done
+          echo "game server never opened port 27015" >&2
+          exit 1
+
+      - name: Give the game server time to finish loading
+        run: sleep 20
+
+      - run: deno task e2e
