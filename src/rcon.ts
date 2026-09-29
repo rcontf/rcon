@@ -127,6 +127,9 @@ export class Rcon {
   public disconnect() {
     this.#authenticated = false;
     this.#connected = false;
+    this.#activeReject?.(new NotConnectedException());
+    this.#activePacketHandler = undefined;
+    this.#activeReject = undefined;
     this.#connection?.end();
   }
 

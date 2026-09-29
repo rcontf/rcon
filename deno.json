@@ -1,7 +1,9 @@
 {
   "name": "@c43721/rcon",
+  "lock": false,
   "tasks": {
-    "test": "deno test -RWN"
+    "test": "deno test tests/ -RWN",
+    "e2e": "deno test e2e/ -RWN"
   },
   "imports": {
     "@std/bytes": "jsr:@std/bytes@^1.0.6",
