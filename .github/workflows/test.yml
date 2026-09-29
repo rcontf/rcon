@@ -29,13 +29,13 @@ jobs:
       - run: deno task test
 
   e2e-tests:
-    name: End-to-end tests (real game server)
+    name: E2E tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     services:
       test-server:
-        image: ghcr.io/tf2pickup-org/tf2-base:latest
+        image: ghcr.io/melkortf/tf2-base:latest
         ports:
           - 27015:27015/tcp
           - 27015:27015/udp
