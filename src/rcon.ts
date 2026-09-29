@@ -2,7 +2,6 @@ import { protocol } from "./protocol.ts";
 import { concat } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
 import { type DecodedPacket, encode, tryDecode } from "./packet.ts";
-import { abortable } from "@std/async";
 import { NotAuthenticatedException, NotConnectedException, PacketSizeTooBigException, UnableToAuthenicateException } from "./errors.ts";
 import type { RconOptions } from "./types.ts";
 
@@ -88,10 +87,7 @@ export class Rcon {
     }
 
     // This can only ever be a boolean
-    const response = await abortable(
-      this.#enqueue(() => this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password)).catch(() => false),
-      AbortSignal.timeout(this.#timeout),
-    ) as boolean;
+    const response = await this.#enqueue(() => this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password, AbortSignal.timeout(this.#timeout))).catch(() => false) as boolean;
 
     this.#authenticated = response;
     return response;
@@ -115,10 +111,7 @@ export class Rcon {
     const packetId = Math.floor(Math.random() * (256 - 1) + 1);
 
     // by this point, the return is only ever a string
-    return await abortable(
-      this.#enqueue(() => this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command)),
-      AbortSignal.timeout(this.#timeout),
-    ) as string;
+    return await this.#enqueue(() => this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command, AbortSignal.timeout(this.#timeout))) as string;
   }
 
   /**
@@ -210,13 +203,24 @@ export class Rcon {
    * @param id Packet ID
    * @param body Packet payload
    */
-  async #send(type: number, id: number, body: string): Promise<string | boolean> {
+  async #send(type: number, id: number, body: string, signal: AbortSignal): Promise<string | boolean> {
+    if (!this.#connected || !this.#connection || this.#connection.writableEnded) {
+      return Promise.reject(new NotConnectedException());
+    }
+
     const { promise, resolve, reject } = Promise.withResolvers<string | boolean>();
     const encodedPacket = encode(type, id, body);
 
     if (this.#maxPacketSize > 0 && encodedPacket.length > this.#maxPacketSize) {
       throw new PacketSizeTooBigException();
     }
+
+    if (signal.aborted) {
+      reject(new DOMException("Command timed out", "TimeoutError"));
+      return promise;
+    }
+    const onTimeout = () => reject(new DOMException("Command timed out", "TimeoutError"));
+    signal.addEventListener("abort", onTimeout, { once: true });
 
     let multiPacketResponse = new Uint8Array();
 
@@ -228,22 +232,15 @@ export class Rcon {
         } else if (decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE) {
           resolve(decodedPacket.id === protocol.ID_AUTH);
         }
-        // Otherwise this is the empty SERVERDATA_RESPONSE_VALUE the server
-        // sends immediately before the real auth response - expected, and
-        // ignored.
+
         return;
       }
 
-      // Because commands are serialized (see `#enqueue`), only packets
-      // carrying *this* command's own echoed id, or our own sentinel id,
-      // are ever relevant here.
       if (decodedPacket.id !== id && decodedPacket.id !== protocol.ID_TERM) {
         return;
       }
 
       if (decodedPacket.id === protocol.ID_TERM) {
-        // The trash-packet echo: an unambiguous marker that everything
-        // gathered so far is the complete response.
         resolve(new TextDecoder().decode(multiPacketResponse));
         return;
       }
@@ -251,18 +248,12 @@ export class Rcon {
       multiPacketResponse = concat([multiPacketResponse, decodedPacket.body]);
 
       if (decodedPacket.size > 3700) {
-        // This packet is close to the protocol's ~4096-byte cap, so the
-        // response likely continues in further packets. Send the
-        // documented "trash packet" workaround and wait for its echo
-        // (id === ID_TERM) rather than guessing when we're done.
+        // We're pretty sure this is a multipacket response, so let's make sure
         // https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
         this.#connection!.write(
           encode(protocol.SERVERDATA_RESPONSE_VALUE, protocol.ID_TERM, ""),
         );
       } else {
-        // Per protocol, only the *final* packet of a response is allowed
-        // to come in under the max size - so it's safe to resolve now and
-        // skip the extra sentinel round trip.
         resolve(new TextDecoder().decode(multiPacketResponse));
       }
     };
@@ -270,6 +261,7 @@ export class Rcon {
     this.#connection!.write(encodedPacket);
 
     return await promise.finally(() => {
+      signal.removeEventListener("abort", onTimeout);
       this.#activePacketHandler = undefined;
       this.#activeReject = undefined;
     });
