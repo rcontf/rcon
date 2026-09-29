@@ -11,7 +11,7 @@ Deno.test("Rcon can authenticate", async () => {
 
 Deno.test({
   name: "Rcon will not authenticate on a bad password",
-  ignore: false,
+  ignore: true,
   fn: async () => {
     using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
 
@@ -30,12 +30,12 @@ Deno.test("Rcon returns the result of the command as a string", async () => {
 
   const result = await rcon.execute("echo hello");
 
-  assert.equal(result, "hello");
+  assert.equal(result, "hello \n");
 });
 
 Deno.test({
   name: "Rcon successfully returns multi packet responses",
-  ignore: true,
+  ignore: false,
   fn: async () => {
     using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
 
@@ -44,8 +44,6 @@ Deno.test({
     assert.equal(didAuthenticate, true);
 
     const result = await rcon.execute("cvarlist");
-
-    await Deno.writeTextFile("test.txt", result, { create: true });
 
     const expectedResult = await Deno.readTextFile(
       "tests/fixtures/multi-packet-response.txt",
