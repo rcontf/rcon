@@ -1,9 +1,8 @@
 import { protocol } from "./protocol.ts";
 import { concat } from "@std/bytes";
 import { createConnection, type Socket } from "node:net";
-import { decode, encode } from "./packet.ts";
-import { abortable } from "@std/async";
-import { NotAuthenticatedException, NotConnectedException, PacketSizeTooBigException, UnableToAuthenicateException, UnableToParseResponseException } from "./errors.ts";
+import { type DecodedPacket, encode, tryDecode } from "./packet.ts";
+import { NotAuthenticatedException, NotConnectedException, PacketSizeTooBigException, UnableToAuthenicateException } from "./errors.ts";
 import type { RconOptions } from "./types.ts";
 
 /**
@@ -35,6 +34,13 @@ export class Rcon {
   #connected = false;
   #authenticated = false;
   #maxPacketSize = 4096;
+
+  #recvBuffer: Uint8Array = new Uint8Array(0);
+
+  #activePacketHandler?: (packet: DecodedPacket) => void;
+  #activeReject?: (reason: unknown) => void;
+
+  #queue: Promise<unknown> = Promise.resolve();
 
   /**
    * Creates a new RCON connection
@@ -81,10 +87,7 @@ export class Rcon {
     }
 
     // This can only ever be a boolean
-    const response = await abortable(
-      this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password).catch(() => false),
-      AbortSignal.timeout(this.#timeout),
-    ) as boolean;
+    const response = await this.#enqueue(() => this.#send(protocol.SERVERDATA_AUTH, protocol.ID_AUTH, password, AbortSignal.timeout(this.#timeout))).catch(() => false) as boolean;
 
     this.#authenticated = response;
     return response;
@@ -108,10 +111,7 @@ export class Rcon {
     const packetId = Math.floor(Math.random() * (256 - 1) + 1);
 
     // by this point, the return is only ever a string
-    return await abortable(
-      this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command),
-      AbortSignal.timeout(this.#timeout),
-    ) as string;
+    return await this.#enqueue(() => this.#send(protocol.SERVERDATA_EXECCOMMAND, packetId, command, AbortSignal.timeout(this.#timeout))) as string;
   }
 
   /**
@@ -120,6 +120,9 @@ export class Rcon {
   public disconnect() {
     this.#authenticated = false;
     this.#connected = false;
+    this.#activeReject?.(new NotConnectedException());
+    this.#activePacketHandler = undefined;
+    this.#activeReject = undefined;
     this.#connection?.end();
   }
 
@@ -134,6 +137,64 @@ export class Rcon {
     });
 
     this.#connected = true;
+
+    // Registered exactly once per connection. Every byte that arrives gets
+    // appended to the running buffer, then we try to peel off as many
+    // complete packets as the buffer currently holds - zero, one, or many.
+    this.#connection.on("data", (chunk: Uint8Array) => {
+      this.#recvBuffer = concat([this.#recvBuffer, chunk]);
+      this.#drainPackets();
+    });
+
+    const onConnectionDown = (reason: unknown) => {
+      this.#connected = false;
+      this.#activeReject?.(reason instanceof Error ? reason : new Error(String(reason)));
+      this.#activePacketHandler = undefined;
+      this.#activeReject = undefined;
+    };
+
+    this.#connection.on("error", onConnectionDown);
+    this.#connection.on("close", () => onConnectionDown(new NotConnectedException()));
+  }
+
+  /**
+   * Extracts every complete packet currently sitting in `#recvBuffer` and
+   * hands each one to whichever command is currently active.
+   */
+  #drainPackets() {
+    while (true) {
+      let result;
+
+      try {
+        result = tryDecode(this.#recvBuffer);
+      } catch (error) {
+        // The stream is corrupt or we've drifted out of sync with packet
+        // boundaries - there's no safe way to keep reading from here.
+        this.#activeReject?.(error);
+        this.#connection?.destroy();
+        return;
+      }
+
+      if (result === null) {
+        // Not enough bytes yet for a full packet - wait for more `data`.
+        return;
+      }
+
+      this.#recvBuffer = this.#recvBuffer.slice(result.consumed);
+      this.#activePacketHandler?.(result.packet);
+    }
+  }
+
+  /**
+   * Runs `task` only after every previously queued command has settled.
+   */
+  #enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.#queue.then(task, task);
+    this.#queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   /**
@@ -142,7 +203,11 @@ export class Rcon {
    * @param id Packet ID
    * @param body Packet payload
    */
-  async #send(type: number, id: number, body: string): Promise<string | boolean> {
+  async #send(type: number, id: number, body: string, signal: AbortSignal): Promise<string | boolean> {
+    if (!this.#connected || !this.#connection || this.#connection.writableEnded) {
+      return Promise.reject(new NotConnectedException());
+    }
+
     const { promise, resolve, reject } = Promise.withResolvers<string | boolean>();
     const encodedPacket = encode(type, id, body);
 
@@ -150,60 +215,55 @@ export class Rcon {
       throw new PacketSizeTooBigException();
     }
 
-    this.#connection!.write(encodedPacket);
+    if (signal.aborted) {
+      reject(new DOMException("Command timed out", "TimeoutError"));
+      return promise;
+    }
+    const onTimeout = () => reject(new DOMException("Command timed out", "TimeoutError"));
+    signal.addEventListener("abort", onTimeout, { once: true });
 
-    let potentialMultiPacketResponse = new Uint8Array();
+    let multiPacketResponse = new Uint8Array();
 
-    const parseResponse = (value: Uint8Array) => {
-      const decodedPacket = decode(value);
-
-      if (decodedPacket.size < 10) {
-        reject(new UnableToParseResponseException());
-      }
-
-      if (decodedPacket.id === -1) {
-        reject(new UnableToAuthenicateException());
-      }
-
-      if (
-        type === protocol.SERVERDATA_AUTH &&
-        decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE
-      ) {
-        resolve(decodedPacket.id === protocol.ID_AUTH);
-      } else if (
-        type !== protocol.SERVERDATA_AUTH &&
-        (decodedPacket.type === protocol.SERVERDATA_RESPONSE_VALUE ||
-          decodedPacket.id === protocol.ID_TERM)
-      ) {
-        potentialMultiPacketResponse = concat([
-          potentialMultiPacketResponse,
-          decodedPacket.body,
-        ]);
-
-        // Hack to cope with multipacket responses
-        // see https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
-        if (decodedPacket.size > 3700) {
-          const encodedTerminationPacket = encode(
-            protocol.SERVERDATA_RESPONSE_VALUE,
-            protocol.ID_TERM,
-            "",
-          );
-
-          this.#connection!.write(encodedTerminationPacket);
-        } else if (decodedPacket.size <= 3700) {
-          resolve(new TextDecoder().decode(potentialMultiPacketResponse));
+    this.#activeReject = reject;
+    this.#activePacketHandler = (decodedPacket) => {
+      if (type === protocol.SERVERDATA_AUTH) {
+        if (decodedPacket.id === -1) {
+          reject(new UnableToAuthenicateException());
+        } else if (decodedPacket.type === protocol.SERVERDATA_AUTH_RESPONSE) {
+          resolve(decodedPacket.id === protocol.ID_AUTH);
         }
+
+        return;
+      }
+
+      if (decodedPacket.id !== id && decodedPacket.id !== protocol.ID_TERM) {
+        return;
+      }
+
+      if (decodedPacket.id === protocol.ID_TERM) {
+        resolve(new TextDecoder().decode(multiPacketResponse));
+        return;
+      }
+
+      multiPacketResponse = concat([multiPacketResponse, decodedPacket.body]);
+
+      if (decodedPacket.size > 3700) {
+        // We're pretty sure this is a multipacket response, so let's make sure
+        // https://developer.valvesoftware.com/wiki/Talk:Source_RCON_Protocol#How_to_receive_split_response?
+        this.#connection!.write(
+          encode(protocol.SERVERDATA_RESPONSE_VALUE, protocol.ID_TERM, ""),
+        );
+      } else {
+        resolve(new TextDecoder().decode(multiPacketResponse));
       }
     };
 
-    this.#connection!.on("data", (value) => {
-      parseResponse(value);
-    });
+    this.#connection!.write(encodedPacket);
 
-    this.#connection!.on("end", () => {
-      this.#connection!.off("data", parseResponse);
+    return await promise.finally(() => {
+      signal.removeEventListener("abort", onTimeout);
+      this.#activePacketHandler = undefined;
+      this.#activeReject = undefined;
     });
-
-    return await promise;
   }
 }

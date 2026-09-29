@@ -1,56 +1,121 @@
 import assert from "node:assert";
 import { Rcon } from "../src/rcon.ts";
+import { NotAuthenticatedException, NotConnectedException, PacketSizeTooBigException } from "../src/errors.ts";
+import { startFakeServer } from "./fakeSrcdsServer.ts";
 
-Deno.test("Rcon can authenticate", async () => {
-  using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
+const PASSWORD = "correct-password";
 
-  const didAuthenticate = await rcon.authenticate("password");
-
-  assert.equal(didAuthenticate, true);
+Deno.test("authenticate() succeeds with the right password", async () => {
+  const fake = await startFakeServer({ password: PASSWORD });
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port });
+    assert.equal(await rcon.authenticate(PASSWORD), true);
+    assert.equal(rcon.isAuthenticated, true);
+  } finally {
+    await fake.close();
+  }
 });
 
-Deno.test({
-  name: "Rcon will not authenticate on a bad password",
-  ignore: false,
-  fn: async () => {
-    using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
-
-    const didAuthenticate = await rcon.authenticate("badpassword");
-
-    assert.equal(didAuthenticate, false);
-  },
+Deno.test("authenticate() fails with the wrong password", async () => {
+  const fake = await startFakeServer({ password: PASSWORD });
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port });
+    assert.equal(await rcon.authenticate("wrong-password"), false);
+    assert.equal(rcon.isAuthenticated, false);
+  } finally {
+    await fake.close();
+  }
 });
 
-Deno.test("Rcon returns the result of the command as a string", async () => {
-  using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
-
-  const didAuthenticate = await rcon.authenticate("password");
-
-  assert.equal(didAuthenticate, true);
-
-  const result = await rcon.execute("echo hello");
-
-  assert.equal(result, "hello");
+Deno.test("execute() throws NotConnectedException before any connection was made", async () => {
+  using rcon = new Rcon({ host: "127.0.0.1", port: 1 });
+  await assert.rejects(() => rcon.execute("status"), NotConnectedException);
 });
 
-Deno.test({
-  name: "Rcon successfully returns multi packet responses",
-  ignore: true,
-  fn: async () => {
-    using rcon = new Rcon({ host: "127.0.0.1", port: 27015 });
+Deno.test("execute() throws NotAuthenticatedException if authenticate() hasn't succeeded", async () => {
+  const fake = await startFakeServer({ password: PASSWORD });
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port });
+    await rcon.authenticate("wrong-password"); // fails, but does connect
+    await assert.rejects(() => rcon.execute("status"), NotAuthenticatedException);
+  } finally {
+    await fake.close();
+  }
+});
 
-    const didAuthenticate = await rcon.authenticate("password");
+Deno.test("execute() returns a short single-packet response correctly", async () => {
+  const fake = await startFakeServer({
+    password: PASSWORD,
+    commands: { "echo hello": "hello" },
+  });
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port });
+    await rcon.authenticate(PASSWORD);
+    assert.equal(await rcon.execute("echo hello"), "hello");
+  } finally {
+    await fake.close();
+  }
+});
 
-    assert.equal(didAuthenticate, true);
+Deno.test("execute() throws PacketSizeTooBigException for an oversized command", async () => {
+  const fake = await startFakeServer({ password: PASSWORD });
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port });
+    await rcon.authenticate(PASSWORD);
 
-    const result = await rcon.execute("cvarlist");
+    const hugeCommand = "x".repeat(4090); // encoded length exceeds the 4096-byte cap
+    await assert.rejects(() => rcon.execute(hugeCommand), PacketSizeTooBigException);
+  } finally {
+    await fake.close();
+  }
+});
 
-    await Deno.writeTextFile("test.txt", result, { create: true });
+Deno.test("works with parallel rcon commands", async () => {
+  const fake = await startFakeServer({
+    password: PASSWORD,
+    commands: {
+      cmd1: "response-one",
+      cmd2: "response-two",
+      cmd3: "response-three",
+    },
+  });
 
-    const expectedResult = await Deno.readTextFile(
-      "tests/fixtures/multi-packet-response.txt",
-    );
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port });
+    await rcon.authenticate(PASSWORD);
 
-    assert.strictEqual(result, expectedResult);
-  },
+    // Deliberately not awaited individually - this is exactly the pattern
+    // that used to cross-talk when a leftover `data` listener from an
+    // earlier command could still consume bytes meant for a later one.
+    const [r1, r2, r3] = await Promise.all([
+      rcon.execute("cmd1"),
+      rcon.execute("cmd2"),
+      rcon.execute("cmd3"),
+    ]);
+
+    assert.equal(r1, "response-one");
+    assert.equal(r2, "response-two");
+    assert.equal(r3, "response-three");
+  } finally {
+    await fake.close();
+  }
+});
+
+Deno.test("execute() rejects on timeout, and the connection is usable again afterwards", async () => {
+  const fake = await startFakeServer({
+    password: PASSWORD,
+    commands: { "echo hi": "hi" },
+  });
+
+  try {
+    using rcon = new Rcon({ host: "127.0.0.1", port: fake.port, timeout: 200 });
+    await rcon.authenticate(PASSWORD);
+
+    await assert.rejects(async () => await rcon.execute("map"));
+
+    // A timed-out command must not wedge the queue for later commands.
+    assert.equal(await rcon.execute("echo hi"), "hi");
+  } finally {
+    await fake.close();
+  }
 });
