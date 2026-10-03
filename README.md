@@ -1,10 +1,26 @@
-# Deno Source RCON Protocol
+# SRCDS RCON
 
-Complete implementation of the [Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON_Protocol).
+Complete implementation of the [Source RCON Protocol](https://developer.valvesoftware.com/wiki/Source_RCON_Protocol). This library works with any runtime and is not specific to any game. Supported games may include:
+
+- Project Zomboid
+- Rust
+- CSGO
+- Team Fortress 2
+- Minecraft
+- Palworld
+- Factorio
+
+If there are games not listed but supports Valve's RCON protocol, it should work still. Leave a bug report if there are issues with a game.
 
 ## Install
 
-Checkout the [jsr page](https://jsr.io/@c43721/rcon) for more details.
+Install using `jsr`:
+
+```bash
+npx jsr add @c43721/rcon
+```
+
+For more details, checkout the [jsr page](https://jsr.io/@c43721/rcon).
 
 ### Examples
 
@@ -26,7 +42,7 @@ For more examples, see the [documentation on jsr](https://jsr.io/@c43721/rcon/do
 
 ## Contributing
 
-If there's a feature or bug, please raise a github issue first alongside your PR (if you're kind enough to make a PR.)
+If there's a feature or bug, please raise a Github issue first alongside your PR (if you're kind enough to make a PR.)
 
 ## Acknowledgements
 
