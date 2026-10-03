@@ -34,5 +34,6 @@ Deno.test("Rcon successfully returns multi packet responses", async () => {
     "e2e/fixtures/multi-packet-response.txt",
   );
 
+  assert.equal(2035, result.split("\n").length);
   assert.strictEqual(result, expectedResult);
 });
