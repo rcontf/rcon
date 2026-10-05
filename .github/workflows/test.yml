@@ -35,7 +35,7 @@ jobs:
 
     services:
       test-server:
-        image: ghcr.io/melkortf/tf2-base:latest
+        image: ghcr.io/melkortf/tf2-base@sha256:d99294b23c88741492dc38e46411fde15650e9b352fffa7e09ccf9e49594d8ef
         ports:
           - 27015:27015/tcp
           - 27015:27015/udp
