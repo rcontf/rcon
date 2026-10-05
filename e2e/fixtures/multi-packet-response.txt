@@ -1827,6 +1827,8 @@ tf_quests_spew_trackers                  : cmd      :                  : Spews a
 tf_rd_max_points_override                : 0        : , "sv"           : When changed, overrides the current max points
 tf_rd_return_max_time                    : 90       : , "sv"           : 
 tf_rd_return_min_time                    : 30       : , "sv"           : 
+tf_ready_countdown_minimum               : 60       : , "sv"           : When players ready up never reduce the countdown timer below this number of seconds
+tf_ready_countdown_reduce_per_player     : 30       : , "sv"           : How many seconds we should reduce the countdown timer by per player readying up
 tf_resolve_stuck_players                 : 1        : , "sv", "rep"    : 
 tf_select_ambush_areas                   : cmd      :                  : Add good ambush spots to the selected set. For debugging.
 tf_select_ambush_areas_close_range       : 300      : , "sv", "cheat"  : 
@@ -2031,4 +2033,4 @@ xbox_throttlebias                        : 100      : , "a", "sv"      :
 xbox_throttlespoof                       : 200      : , "a", "sv"      : 
 xc_crouch_debounce                       : 0        : , "sv"           : 
 --------------
-2030 total convars/concommands
+2032 total convars/concommands
